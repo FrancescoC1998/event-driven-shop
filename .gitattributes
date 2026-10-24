@@ -1,0 +1,5 @@
+# Gli script eseguiti dentro i container Linux devono avere fine riga LF:
+# con CRLF (Windows) bash fallisce con errori tipo "$'\r': command not found".
+*.sh   text eol=lf
+mvnw   text eol=lf
+*.cmd  text eol=crlf

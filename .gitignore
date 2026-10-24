@@ -1,0 +1,25 @@
+# Segreti locali
+.env
+
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.properties
+
+# IntelliJ
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+
+# Node (frontend, più avanti)
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log
+*.log
