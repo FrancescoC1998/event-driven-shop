@@ -3,7 +3,7 @@
 Progetto didattico: una **mini gestione ordini a microservizi** con Spring Boot, Kafka, PostgreSQL e Docker.
 Più avanti si aggiungeranno un frontend React (Vite + TypeScript) e un server MCP per interrogare il sistema con un LLM.
 
-> Stato attuale: **tappa 1 completata** (infrastruttura + schema dei database). Nessun microservizio Java è ancora stato scritto.
+> Stato attuale: **tappa 2 completata**: infrastruttura, schema dei database e primo microservizio (`inventory-service`, CRUD dei prodotti), eseguibile da IntelliJ o in Docker.
 
 ---
 
@@ -20,6 +20,8 @@ Più avanti si aggiungeranno un frontend React (Vite + TypeScript) e un server M
    - [5.4 Flyway: lo schema dei database](#54-flyway-lo-schema-dei-database)
    - [5.5 Kafka](#55-kafka)
    - [5.6 Rete: localhost o nome del servizio?](#56-rete-localhost-o-nome-del-servizio)
+   - [5.7 inventory-service](#57-inventory-service)
+   - [5.8 Il servizio in Docker](#58-il-servizio-in-docker)
 6. [Strumenti: DBeaver e Kafka UI](#6-strumenti-dbeaver-e-kafka-ui)
 7. [Comandi utili](#7-comandi-utili)
 8. [Problemi noti e soluzioni](#8-problemi-noti-e-soluzioni)
@@ -89,10 +91,15 @@ docker compose up -d
 # 3. Crea le tabelle
 docker compose run --rm flyway-inventory
 docker compose run --rm flyway-orders
+
+# 4. Avvia i microservizi in Docker (oppure lanciali da IntelliJ)
+docker compose --profile apps up -d --build
 ```
 
 | Cosa | Dove |
 |---|---|
+| inventory-service | http://localhost:8081/products |
+| Health del servizio | http://localhost:8081/actuator/health |
 | Kafka UI | http://localhost:8085 |
 | PostgreSQL | `localhost:5432` |
 | Kafka (dalle app sul PC) | `localhost:9092` |
@@ -118,16 +125,27 @@ event-driven-shop/
 ├── docker/
 │   └── postgres/init/
 │       └── 01-create-databases.sh  ← crea utenti e database al primo avvio
-├── inventory-service/
-│   └── src/main/resources/db/migration/
-│       ├── V1__create_products.sql
-│       └── V2__seed_products.sql
+├── .dockerignore                   ← file esclusi dalle build delle immagini
+├── postman/                        ← collection Postman con le richieste di prova
+├── inventory-service/              ← modulo Maven (tappa 2)
+│   ├── pom.xml
+│   ├── Dockerfile
+│   ├── products.http               ← richieste di prova per IntelliJ
+│   └── src/
+│       ├── main/java/it/francesco/shop/inventory/
+│       │   ├── InventoryServiceApplication.java
+│       │   ├── product/            ← controller, service, repository, entità, dto/
+│       │   └── common/             ← GlobalExceptionHandler
+│       ├── main/resources/
+│       │   ├── application.yml
+│       │   └── db/migration/       ← V1__create_products.sql, V2__seed_products.sql
+│       └── test/java/...           ← Testcontainers + test delle API
 └── order-service/
     └── src/main/resources/db/migration/
         └── V1__create_orders.sql
 ```
 
-Le cartelle `inventory-service` e `order-service` per ora contengono **solo le migrazioni SQL**: diventeranno moduli Maven completi nelle prossime tappe.
+`order-service` per ora contiene **solo le migrazioni SQL**: diventerà un modulo Maven nella tappa 3.
 
 ---
 
@@ -279,6 +297,61 @@ Ogni container ha un IP in una rete virtuale Docker (`shop_default`) non raggiun
 
 Kafka ha bisogno di **due listener** perché, dopo la prima connessione, comunica al client l'indirizzo da usare (*advertised listener*): deve essere un indirizzo raggiungibile da chi lo riceve.
 
+### 5.7 inventory-service
+
+Catalogo prodotti e stock, porta **8081**. Struttura a strati, un package per funzionalità:
+
+| Strato | Classe | Responsabilità |
+|---|---|---|
+| Web | `ProductController` | HTTP: URL, status code, header (`Location` sulla POST) |
+| Business | `ProductService` | Regole (SKU unico) e transazioni (`@Transactional`) |
+| Dati | `ProductRepository`, `Product` | Spring Data JPA / Hibernate ↔ tabella `products` |
+| Contratto | `dto/` (record) | Cosa entra ed esce dalle API, con Bean Validation |
+| Errori | `GlobalExceptionHandler` | Eccezioni → `ProblemDetail` (RFC 9457) |
+
+**API**
+
+| Metodo | URL | Successo | Errori |
+|---|---|---|---|
+| `GET` | `/products?page=0&size=20&sort=name` | 200, pagina (`content` + `page`) | 400 |
+| `GET` | `/products/{id}` | 200 | 404, 400 (UUID non valido) |
+| `POST` | `/products` | 201 + `Location` | 400 (validazione), 409 (SKU duplicato) |
+| `PUT` | `/products/{id}` | 200 | 400, 404, 409 (modifica concorrente) |
+| `DELETE` | `/products/{id}` | 204 | 404 |
+| `GET` | `/actuator/health` | 200 `UP` | 503 se il DB non risponde |
+
+**Meccanismi da ricordare**
+
+- **Avvio**: Flyway verifica/applica le migrazioni, poi Hibernate (`ddl-auto: validate`) controlla che le entità coincidano con le tabelle. Se qualcosa non torna, il servizio non parte.
+- **Configurazione**: `application.yml` legge `DB_HOST` (default `localhost`) e la password da `.env` o dalle variabili d'ambiente.
+- **Dirty checking**: nella modifica non serve `save()`, Hibernate genera l'`UPDATE` al commit.
+- **Optimistic locking**: `@Version` → `UPDATE ... WHERE version = ?`; una modifica concorrente produce 409 invece di sovrascrivere.
+- **Doppia difesa**: vincoli nel DTO (messaggi chiari) e nel database (`CHECK`, `UNIQUE`).
+
+**Test**: `ProductApiTests` avvia l'applicazione completa con un PostgreSQL vero in **Testcontainers** (`@ServiceConnection`) e chiama le API con `MockMvcTester`. Richiede Docker avviato:
+
+```powershell
+.\mvnw.cmd -pl inventory-service test
+```
+
+**Richieste di prova**: `inventory-service/products.http` (client HTTP di IntelliJ) oppure la collection `postman/event-driven-shop.postman_collection.json` (Postman → *Import*; con *Run collection* esegue tutte le richieste e i relativi test).
+
+### 5.8 Il servizio in Docker
+
+**`inventory-service/Dockerfile`**: build **multi-stage**.
+
+1. Stadio `build` (`eclipse-temurin:25-jdk`): copia POM, Maven Wrapper e sorgenti, esegue `mvnw -pl inventory-service -am package`. Le dipendenze Maven restano in una cache (`--mount=type=cache`) tra una build e l'altra.
+2. Stadio finale (`eclipse-temurin:25-jre`): contiene solo il jar, `curl` (per l'healthcheck) e un utente senza privilegi (`spring`).
+
+Il build context è la **root del repository**, perché servono il POM parent e `mvnw`. `.dockerignore` esclude `.env` (mai segreti nelle immagini) e `target/`.
+
+**`docker-compose.yml`**: servizio `inventory-service` nel profilo **`apps`**, quindi `docker compose up -d` avvia solo l'infrastruttura e il servizio si può lanciare da IntelliJ senza conflitti sulla porta 8081.
+
+- `DB_HOST: postgres`: dal container il database si raggiunge con il nome del servizio (vedi 5.6).
+- `depends_on` con `service_healthy`: parte solo quando Postgres è pronto.
+- `healthcheck`: chiama `/actuator/health` → stato `healthy` / `unhealthy` in `docker ps`.
+- **Debug remoto**: `JAVA_TOOL_OPTIONS` attiva l'agente JDWP sulla porta **5005**. In IntelliJ: *Run → Edit Configurations → + → Remote JVM Debug*, host `localhost`, porta `5005`, module classpath `inventory-service`. Solo per sviluppo; dopo una modifica al codice ricostruire l'immagine (`--build`), altrimenti i breakpoint non corrispondono.
+
 ---
 
 ## 6. Strumenti: DBeaver e Kafka UI
@@ -320,6 +393,10 @@ docker compose run --rm flyway-inventory          # applica le migrazioni di inv
 docker compose run --rm flyway-orders             # applica le migrazioni di orders_db
 docker compose run --rm flyway-orders info        # stato delle migrazioni
 
+docker compose --profile apps up -d --build       # (ri)costruisce e avvia i microservizi
+docker compose logs -f inventory-service          # log del servizio
+docker compose stop inventory-service             # ferma il container (per lanciarlo da IntelliJ)
+
 docker exec shop-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 ```
 
@@ -338,19 +415,22 @@ docker exec shop-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localho
 | Script `.sh` fallisce con `$'\r'` | Fine riga Windows (CRLF) | `.gitattributes` forza LF sui `.sh` |
 | DBeaver: `database "..." does not exist` | Campo Database compilato male | Nel campo Database va `orders_db`, non il nome della variabile |
 | DBeaver non mostra `inventory_db` | Isolamento voluto (`REVOKE CONNECT`) | Connessione separata con `inventory_user` |
+| IntelliJ: `Cannot resolve method 'formatted'` | Progetto aperto con JDK 8 | Aprire la cartella del repo come progetto Maven e impostare l'SDK su JDK 25 |
+| Postman: `ECONNREFUSED 127.0.0.1:8081` | Il servizio non è avviato (`docker compose up -d` avvia solo l'infrastruttura) | Avviarlo da IntelliJ o con `--profile apps` |
+| Container `unhealthy` ma il servizio risponde | L'immagine JRE non contiene `curl` | `curl` installato nel Dockerfile |
 
 ---
 
 ## 9. Roadmap
 
 - [x] **Tappa 1** — Progetto Maven multi-modulo, Docker Compose (Postgres, Kafka KRaft, Kafka UI), schema dei database con Flyway
-- [ ] **Tappa 2** — `inventory-service`: CRUD prodotti (Spring Web, JPA)
+- [x] **Tappa 2** — `inventory-service`: CRUD prodotti (Spring Web, JPA), test con Testcontainers, Dockerfile e debug remoto
 - [ ] **Tappa 3** — `order-service`: creazione ordini in stato `PENDING`
 - [ ] **Tappa 4** — Kafka e saga: `common-events`, topic, producer e consumer
 - [ ] **Tappa 5** — `notification-service`
 - [ ] **Tappa 6** — `api-gateway` (Spring Cloud Gateway, CORS)
 - [ ] **Tappa 7** — Robustezza: idempotenza, retry e dead letter topic, outbox pattern, gestione errori
 - [ ] **Tappa 8** — Aggiornamenti in tempo reale (SSE) e OpenAPI
-- [ ] **Tappa 9** — Dockerfile dei servizi e tracing distribuito
+- [ ] **Tappa 9** — Dockerfile dei servizi rimanenti, immagini più leggere e tracing distribuito
 - [ ] Frontend React + Vite + TypeScript
 - [ ] Server MCP (Spring AI)

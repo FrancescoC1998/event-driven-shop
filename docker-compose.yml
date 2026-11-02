@@ -136,6 +136,40 @@ services:
       postgres:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # Microservizi (profilo "apps"): immagini costruite dal nostro codice.
+  # Non partono con un semplice `docker compose up -d`, così durante lo sviluppo
+  # puoi avviarli da IntelliJ senza conflitti sulla porta. Per avviarli in Docker:
+  #   docker compose --profile apps up -d --build
+  # ---------------------------------------------------------------------------
+  inventory-service:
+    build:
+      context: .                                # root del repo: servono POM parent e mvnw
+      dockerfile: inventory-service/Dockerfile
+    image: shop/inventory-service:latest
+    container_name: shop-inventory-service
+    profiles: ["apps"]
+    ports:
+      - "8081:8081"
+      - "5005:5005"   # debug remoto (IntelliJ: Remote JVM Debug su localhost:5005)
+    environment:
+      # Dentro la rete Docker il database si chiama "postgres", non "localhost"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      INVENTORY_DB_PASSWORD: ${INVENTORY_DB_PASSWORD}
+      # Agente di debug JDWP: la JVM legge JAVA_TOOL_OPTIONS all'avvio.
+      # suspend=n -> parte senza aspettare il debugger. Solo per sviluppo, mai in produzione.
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   pgdata:
   kafkadata:

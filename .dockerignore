@@ -1,0 +1,18 @@
+# File esclusi dal "build context" inviato a Docker durante `docker build`.
+# Meno file = build più veloce; e soprattutto i segreti non finiscono nelle immagini.
+
+# Segreti: le password arrivano al container come variabili d'ambiente, MAI copiate nell'immagine
+.env
+
+# Output di compilazione locale: l'immagine compila da zero
+**/target/
+
+# Git, IDE, file non necessari alla build
+.git/
+.idea/
+.vscode/
+**/*.iml
+postman/
+docker/
+**/node_modules/
+**/*.log

@@ -20,6 +20,7 @@
     <description>Mini gestione ordini a microservizi (Spring Boot + Kafka + Docker)</description>
 
     <modules>
+        <module>inventory-service</module>
     </modules>
 
     <properties>

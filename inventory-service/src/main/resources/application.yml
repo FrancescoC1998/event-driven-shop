@@ -1,0 +1,46 @@
+server:
+  port: 8081                          # ogni servizio ha la sua porta (order-service: 8082)
+
+spring:
+  application:
+    name: inventory-service
+
+  config:
+    # Legge le variabili dal file .env del progetto (password del DB), se esiste.
+    # Due percorsi perché la cartella di lavoro può essere la radice del progetto o quella del modulo.
+    # "optional:" = se il file non c'è (es. in Docker o in CI) nessun errore.
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+
+  datasource:
+    # ${VAR:default} -> usa la variabile d'ambiente se esiste, altrimenti il default.
+    # Dal PC: localhost. In Docker (tappa 9) imposteremo DB_HOST=postgres.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/inventory_db
+    username: inventory_user
+    password: ${INVENTORY_DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate              # Hibernate NON crea tabelle: verifica che le entità coincidano con lo schema di Flyway
+    open-in-view: false               # la connessione al DB non resta aperta per tutta la richiesta HTTP
+
+  data:
+    web:
+      pageable:
+        max-page-size: 100            # nessuno può chiedere 1 milione di prodotti in una pagina
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always            # in sviluppo mostra lo stato di DB e disco; in produzione si limita
+
+# Decommenta per vedere le query SQL generate da Hibernate
+#logging:
+#  level:
+#    org.hibernate.SQL: debug
+#    org.hibernate.orm.jdbc.bind: trace

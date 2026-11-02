@@ -1,0 +1,65 @@
+### Richieste di prova per inventory-service (client HTTP di IntelliJ: clic sulla freccia verde a sinistra)
+### Prima avvia InventoryServiceApplication.
+
+### Stato del servizio
+GET http://localhost:8081/actuator/health
+
+### Lista paginata (default: 20 per pagina, ordinati per nome)
+GET http://localhost:8081/products
+
+### Lista: 3 per pagina, ordinati per prezzo decrescente
+GET http://localhost:8081/products?size=3&sort=price,desc
+
+### Un prodotto (Tastiera meccanica dei dati di esempio)
+GET http://localhost:8081/products/11111111-1111-1111-1111-000000000001
+
+### Prodotto inesistente -> 404 ProblemDetail
+GET http://localhost:8081/products/00000000-0000-0000-0000-000000000000
+
+### Crea un prodotto -> 201 Created + header Location
+POST http://localhost:8081/products
+Content-Type: application/json
+
+{
+  "sku": "PD-001",
+  "name": "Pad mouse XL",
+  "description": "Tappetino 90x40 cm",
+  "price": 19.90,
+  "stock": 30
+}
+
+### Stesso SKU di nuovo -> 409 Conflict
+POST http://localhost:8081/products
+Content-Type: application/json
+
+{
+  "sku": "PD-001",
+  "name": "Doppione",
+  "price": 1.00,
+  "stock": 1
+}
+
+### Dati non validi -> 400 con l'elenco dei campi sbagliati
+POST http://localhost:8081/products
+Content-Type: application/json
+
+{
+  "sku": "",
+  "name": "Prezzo negativo",
+  "price": -5,
+  "stock": -1
+}
+
+### Modifica (lo SKU non è modificabile)
+PUT http://localhost:8081/products/11111111-1111-1111-1111-000000000008
+Content-Type: application/json
+
+{
+  "name": "Supporto per laptop",
+  "description": "Supporto in alluminio regolabile",
+  "price": 27.00,
+  "stock": 12
+}
+
+### Elimina -> 204 No Content (sostituisci l'id con quello restituito dalla POST)
+DELETE http://localhost:8081/products/<id>

@@ -2,10 +2,13 @@
 
 Progetto didattico a microservizi: Spring Boot 4.1 / Java 25, Kafka (KRaft), PostgreSQL, Docker Compose.
 Vedi README.md per architettura, spiegazioni e roadmap.
-Stato: tappa 1 completata (infrastruttura + schema DB via Flyway); prossima: tappa 2 (`inventory-service`).
+Stato: tappa 2 completata (`inventory-service`: CRUD prodotti, test, Dockerfile); prossima: tappa 3 (`order-service`).
 
 ## Comandi
 - Infrastruttura: `docker compose up -d` (Postgres 5432, Kafka 9092, Kafka UI http://localhost:8085)
+- Microservizi in Docker (profilo `apps`): `docker compose --profile apps up -d --build` (inventory 8081, debug remoto JDWP 5005)
+- Test: `mvnw -pl inventory-service test` (Testcontainers: richiede Docker avviato)
+- Richieste di prova: `postman/event-driven-shop.postman_collection.json`, `inventory-service/products.http`
 - Migrazioni: `docker compose run --rm flyway-inventory` / `docker compose run --rm flyway-orders` (aggiungi `info` per lo stato)
 - Maven: sempre il wrapper `mvnw` / `mvnw.cmd`, con JAVA_HOME = JDK 25 (`C:\Program Files\Java\jdk-25.0.5.0.2`) impostato solo nella sessione.
   Il JAVA_HOME di sistema è Java 8 e NON va modificato.
@@ -18,6 +21,9 @@ Stato: tappa 1 completata (infrastruttura + schema DB via Flyway); prossima: tap
 - Comunicazione tra servizi: REST per richieste sincrone, eventi Kafka per tutto ciò che "è successo" (saga a coreografia).
 - Prezzi e importi: `NUMERIC` in SQL, `BigDecimal` in Java, mai float/double.
 - Da un container usare il nome del servizio (`postgres:5432`, `kafka:29092`); dal PC `localhost:5432`, `localhost:9092`.
+- Struttura di un servizio: package per funzionalità (`product/` con controller, service, repository, entità, `dto/`), `common/` per l'handler degli errori.
+  DTO come `record` con Bean Validation; errori come `ProblemDetail` (RFC 9457); entità con `@Version` (optimistic locking).
+- Dockerfile multi-stage per servizio, con build context = root del repo; mai segreti nelle immagini (`.env` escluso da `.dockerignore`).
 
 ## Ambiente
 - Windows; da Git Bash anteporre `MSYS_NO_PATHCONV=1` ai comandi `docker exec ... /opt/...`.

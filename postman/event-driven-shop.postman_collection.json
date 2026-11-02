@@ -1,0 +1,302 @@
+{
+  "info": {
+    "name": "event-driven-shop",
+    "description": "Richieste di prova per i microservizi di event-driven-shop.\n\nPrima avvia l'infrastruttura (`docker compose up -d`) e il servizio da IntelliJ.\nLe richieste sono ordinate: con il Collection Runner puoi eseguirle tutte in sequenza (la POST salva l'id del prodotto creato nella variabile `productId`, usata da GET/PUT/DELETE successive).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "inventoryUrl", "value": "http://localhost:8081" },
+    { "key": "seedProductId", "value": "11111111-1111-1111-1111-000000000001" },
+    { "key": "productId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "inventory-service",
+      "item": [
+        {
+          "name": "Lettura",
+          "item": [
+            {
+              "name": "Health",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/actuator/health" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 e status UP', () => {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(pm.response.json().status).to.eql('UP');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Lista prodotti (default: 20 per pagina, per nome)",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 con content e page', () => {",
+                      "    pm.response.to.have.status(200);",
+                      "    const body = pm.response.json();",
+                      "    pm.expect(body.content).to.be.an('array');",
+                      "    pm.expect(body.page.size).to.eql(20);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Lista prodotti (3 per pagina, prezzo decrescente)",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products?page=0&size=3&sort=price,desc" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('3 prodotti ordinati per prezzo decrescente', () => {",
+                      "    pm.response.to.have.status(200);",
+                      "    const prices = pm.response.json().content.map(p => p.price);",
+                      "    pm.expect(prices).to.have.lengthOf(3);",
+                      "    pm.expect(prices).to.eql([...prices].sort((a, b) => b - a));",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Prodotto per id (Tastiera meccanica)",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products/{{seedProductId}}" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 con SKU KB-001', () => {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(pm.response.json().sku).to.eql('KB-001');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Ciclo di vita di un prodotto",
+          "item": [
+            {
+              "name": "Crea prodotto",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"sku\": \"PD-{{$timestamp}}\",\n  \"name\": \"Pad mouse XL\",\n  \"description\": \"Tappetino 90x40 cm\",\n  \"price\": 19.90,\n  \"stock\": 30\n}"
+                },
+                "url": "{{inventoryUrl}}/products",
+                "description": "Lo SKU contiene un timestamp, così la richiesta si può rilanciare senza ottenere 409."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 con header Location', () => {",
+                      "    pm.response.to.have.status(201);",
+                      "    pm.response.to.have.header('Location');",
+                      "});",
+                      "",
+                      "// Salva l'id per le richieste successive",
+                      "pm.collectionVariables.set('productId', pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Leggi il prodotto creato",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products/{{productId}}" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 con il nome inviato', () => {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(pm.response.json().name).to.eql('Pad mouse XL');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Modifica prodotto (lo SKU non è modificabile)",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Pad mouse XXL\",\n  \"description\": \"Tappetino 120x60 cm\",\n  \"price\": 24.90,\n  \"stock\": 12\n}"
+                },
+                "url": "{{inventoryUrl}}/products/{{productId}}"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 con i nuovi valori', () => {",
+                      "    pm.response.to.have.status(200);",
+                      "    const body = pm.response.json();",
+                      "    pm.expect(body.name).to.eql('Pad mouse XXL');",
+                      "    pm.expect(body.stock).to.eql(12);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Elimina prodotto",
+              "request": { "method": "DELETE", "url": "{{inventoryUrl}}/products/{{productId}}" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Leggi il prodotto eliminato -> 404",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products/{{productId}}" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('404 dopo la cancellazione', () => pm.response.to.have.status(404));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Errori",
+          "item": [
+            {
+              "name": "Prodotto inesistente -> 404 ProblemDetail",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products/00000000-0000-0000-0000-000000000000" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('404 in formato application/problem+json', () => {",
+                      "    pm.response.to.have.status(404);",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "    pm.expect(pm.response.json().status).to.eql(404);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Id non valido -> 400",
+              "request": { "method": "GET", "url": "{{inventoryUrl}}/products/non-un-uuid" },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "SKU duplicato -> 409",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"sku\": \"KB-001\",\n  \"name\": \"Doppione\",\n  \"price\": 1.00,\n  \"stock\": 1\n}"
+                },
+                "url": "{{inventoryUrl}}/products"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('409 con lo SKU nel messaggio', () => {",
+                      "    pm.response.to.have.status(409);",
+                      "    pm.expect(pm.response.json().detail).to.include('KB-001');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Dati non validi -> 400 con errori per campo",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"sku\": \"\",\n  \"name\": \"Prezzo negativo\",\n  \"price\": -5,\n  \"stock\": -1\n}"
+                },
+                "url": "{{inventoryUrl}}/products"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 con errori su sku, price e stock', () => {",
+                      "    pm.response.to.have.status(400);",
+                      "    pm.expect(pm.response.json().errors).to.have.all.keys('sku', 'price', 'stock');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
